@@ -81,7 +81,6 @@ resource "aws_iam_role" "lambda_role" {
   assume_role_policy = data.aws_iam_policy_document.lambda_assume_role.json
 }
 
-# Policy: logs + DynamoDB access to both tables
 data "aws_iam_policy_document" "lambda_policy_doc" {
   statement {
     sid    = "CloudWatchLogs"
@@ -111,6 +110,24 @@ data "aws_iam_policy_document" "lambda_policy_doc" {
     resources = [
       aws_dynamodb_table.votes.arn,
       aws_dynamodb_table.intermediate_results.arn
+    ]
+  }
+
+  statement {
+    sid    = "KinesisRead"
+    effect = "Allow"
+
+    actions = [
+      "kinesis:GetRecords",
+      "kinesis:GetShardIterator",
+      "kinesis:DescribeStream",
+      "kinesis:DescribeStreamSummary",
+      "kinesis:ListShards",
+      "kinesis:ListStreams"
+    ]
+
+    resources = [
+      aws_kinesis_stream.votes_stream.arn
     ]
   }
 }
