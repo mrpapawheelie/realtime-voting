@@ -303,13 +303,6 @@ resource "aws_api_gateway_method_response" "post_vote_200" {
   status_code = "200"
 }
 
-resource "aws_api_gateway_integration_response" "post_vote_integration_200" {
-  rest_api_id = aws_api_gateway_rest_api.votes_api.id
-  resource_id = aws_api_gateway_resource.vote_resource.id
-  http_method = aws_api_gateway_method.post_vote.http_method
-  status_code = aws_api_gateway_method_response.post_vote_200.status_code
-}
-
 # Deployment + stage
 resource "aws_api_gateway_deployment" "votes_deployment" {
   rest_api_id = aws_api_gateway_rest_api.votes_api.id
