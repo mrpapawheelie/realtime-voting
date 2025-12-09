@@ -34,6 +34,8 @@ You can clone this project and deploy it into your own AWS account automatically
                    DynamoDB            DynamoDB
                      votes       intermediate_results
 
+```
+
 ## 🛠 AWS Setup (Before Deploying)
 
 Follow these steps to give Terraform permission to build resources in your AWS account.
