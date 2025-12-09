@@ -131,7 +131,7 @@ You must manually delete them when finished.
 | --- | --- |
 | API Gateway | REST API (prod stage) |
 | Kinesis | Data Stream |
-| Lambda | `dedupe_vote`, `aggregate_results` |
+| Lambda | `dedupe_vote`, `aggregate_results` | Event Source Mappings
 | DynamoDB | `realtime-voting-votes`, `realtime-voting-intermediate-results` |
 | IAM Roles | Any roles starting with `realtime-voting-` |
 | IAM Policies | Any policies starting with `realtime-voting-` |
