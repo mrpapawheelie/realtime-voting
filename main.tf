@@ -14,11 +14,17 @@ provider "aws" {
 }
 
 ########################
+# Caller Identity      #
+########################
+
+data "aws_caller_identity" "current" {}
+
+########################
 # Kinesis Data Stream  #
 ########################
 
 resource "aws_kinesis_stream" "votes_stream" {
-  name       = "${var.project_name}-stream"
+  name        = "${var.project_name}-stream"
   shard_count = 1
 
   # optional; defaults are fine for a lab
@@ -182,6 +188,24 @@ resource "aws_lambda_function" "aggregate_results" {
   }
 }
 
+# Results Lambda: reads intermediate_results table and returns JSON summary
+resource "aws_lambda_function" "results" {
+  function_name = "${var.project_name}-results"
+  role          = aws_iam_role.lambda_role.arn
+
+  runtime = "python3.12"
+  handler = "results.lambda_handler"
+
+  filename         = "${path.module}/lambda/results.zip"
+  source_code_hash = filebase64sha256("${path.module}/lambda/results.zip")
+
+  environment {
+    variables = {
+      INTERMEDIATE_TABLE_NAME = aws_dynamodb_table.intermediate_results.name
+    }
+  }
+}
+
 ########################
 # Kinesis → Lambda     #
 ########################
@@ -271,6 +295,21 @@ resource "aws_api_gateway_method" "post_vote" {
   authorization = "NONE"
 }
 
+# /results resource
+resource "aws_api_gateway_resource" "results_resource" {
+  rest_api_id = aws_api_gateway_rest_api.votes_api.id
+  parent_id   = aws_api_gateway_rest_api.votes_api.root_resource_id
+  path_part   = "results"
+}
+
+# GET /results
+resource "aws_api_gateway_method" "get_results" {
+  rest_api_id   = aws_api_gateway_rest_api.votes_api.id
+  resource_id   = aws_api_gateway_resource.results_resource.id
+  http_method   = "GET"
+  authorization = "NONE"
+}
+
 # Integration: API Gateway → Kinesis service proxy (no Lambda in the middle)
 resource "aws_api_gateway_integration" "post_vote_integration" {
   rest_api_id = aws_api_gateway_rest_api.votes_api.id
@@ -319,22 +358,54 @@ resource "aws_api_gateway_integration_response" "post_vote_integration_200" {
   ]
 }
 
-# Deployment + stage
+# Integration: API Gateway → Results Lambda (proxy)
+resource "aws_api_gateway_integration" "get_results_integration" {
+  rest_api_id = aws_api_gateway_rest_api.votes_api.id
+  resource_id = aws_api_gateway_resource.results_resource.id
+  http_method = aws_api_gateway_method.get_results.http_method
+
+  type                    = "AWS_PROXY"
+  integration_http_method = "POST"
+  uri                     = "arn:aws:apigateway:${var.region}:lambda:path/2015-03-31/functions/${aws_lambda_function.results.arn}/invocations"
+}
+
+# Allow API Gateway to invoke the Results Lambda
+resource "aws_lambda_permission" "apigw_invoke_results" {
+  statement_id  = "AllowAPIGatewayInvokeResults"
+  action        = "lambda:InvokeFunction"
+  function_name = aws_lambda_function.results.function_name
+  principal     = "apigateway.amazonaws.com"
+
+  source_arn = "arn:aws:execute-api:${var.region}:${data.aws_caller_identity.current.account_id}:${aws_api_gateway_rest_api.votes_api.id}/*/${aws_api_gateway_method.get_results.http_method}${aws_api_gateway_resource.results_resource.path}"
+}
+
+########################
+# Deployment + Stage   #
+########################
+
 resource "aws_api_gateway_deployment" "votes_deployment" {
   rest_api_id = aws_api_gateway_rest_api.votes_api.id
 
   # Force new deployment when key resources change
   triggers = {
     redeployment = sha1(jsonencode({
-      resources  = aws_api_gateway_resource.vote_resource.id
-      methods    = aws_api_gateway_method.post_vote.id
-      integration = aws_api_gateway_integration.post_vote_integration.id
+      vote_resource_id            = aws_api_gateway_resource.vote_resource.id
+      post_vote_method_id         = aws_api_gateway_method.post_vote.id
+      post_vote_integration_id    = aws_api_gateway_integration.post_vote_integration.id
+      results_resource_id         = aws_api_gateway_resource.results_resource.id
+      get_results_method_id       = aws_api_gateway_method.get_results.id
+      get_results_integration_id  = aws_api_gateway_integration.get_results_integration.id
     }))
   }
 
   lifecycle {
     create_before_destroy = true
   }
+
+  depends_on = [
+    aws_api_gateway_integration.post_vote_integration,
+    aws_api_gateway_integration.get_results_integration
+  ]
 }
 
 resource "aws_api_gateway_stage" "prod" {
